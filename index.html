@@ -1,0 +1,293 @@
+
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#07111f">
+<title>Pedal Neon</title>
+<style>
+:root {
+  --neon:#00f5d4;
+  --bg:#07111f;
+  --panel:#101e30;
+  --text:#effaff;
+}
+* {box-sizing:border-box}
+body {
+  margin:0; padding:20px;
+  background:var(--bg); color:var(--text);
+  font-family:Arial,sans-serif;
+}
+header {text-align:center;margin:10px 0 25px}
+header h1 {color:var(--neon);letter-spacing:3px}
+header p {color:#9bb0c8;font-size:13px}
+.panel {
+  background:var(--panel);
+  border:1px solid #263a50;
+  border-radius:18px;
+  padding:18px;margin-bottom:15px;
+}
+.label {font-size:12px;color:#9bb0c8}
+.distance {
+  font-size:55px;font-weight:bold;
+  color:var(--neon);margin:12px 0;
+}
+.grid {
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:12px;
+}
+.metric {
+  background:#0a1727;padding:15px;
+  border-radius:12px;
+}
+.value {font-size:24px;font-weight:bold;margin-top:8px}
+input,select,button {
+  width:100%;padding:13px;margin-top:8px;
+  border-radius:10px;border:1px solid #34485e;
+  background:#091523;color:white;font-size:15px;
+}
+button {
+  background:var(--neon);color:#06121d;
+  border:0;font-weight:bold;cursor:pointer;
+}
+button.secondary {background:#20334a;color:white}
+button:disabled {opacity:.45}
+.small {font-size:12px;color:#9bb0c8;line-height:1.5}
+#status {color:var(--neon);font-size:13px}
+</style>
+</head>
+<body>
+<header>
+  <h1>⚡ PEDAL NEON</h1>
+  <p>SUA PEDALADA. SEUS LIMITES.</p>
+  <div id="status">Pronto para pedalar</div>
+</header>
+
+<section class="panel">
+  <div class="label">DISTÂNCIA PERCORRIDA</div>
+  <div class="distance"><span id="km">0.00</span>
+    <span style="font-size:17px">km</span>
+  </div>
+  <div class="grid">
+    <div class="metric">
+      <div class="label">VELOCIDADE ATUAL</div>
+      <div class="value"><span id="speed">0.0</span>
+        <small>km/h</small></div>
+    </div>
+    <div class="metric">
+      <div class="label">VELOCIDADE MÉDIA</div>
+      <div class="value"><span id="avg">0.0</span>
+        <small>km/h</small></div>
+    </div>
+    <div class="metric">
+      <div class="label">TEMPO</div>
+      <div class="value" id="time">00:00:00</div>
+    </div>
+    <div class="metric">
+      <div class="label">CALORIAS ESTIMADAS</div>
+      <div class="value"><span id="cal">0</span>
+        <small>kcal</small></div>
+    </div>
+  </div>
+  <button id="start">▶ INICIAR PEDALADA</button>
+  <button id="pause" class="secondary" disabled>
+    ■ ENCERRAR PEDALADA
+  </button>
+  <p class="small">Mantenha o GPS ligado e permita o acesso
+  à localização quando solicitado.</p>
+</section>
+
+<section class="panel">
+  <h3>👤 Meu perfil</h3>
+  <label class="label">Peso (kg)</label>
+  <input id="weight" type="number" min="20" max="300"
+    value="70" placeholder="Seu peso">
+  <label class="label">Altura (cm)</label>
+  <input id="height" type="number" min="80" max="250"
+    value="170" placeholder="Sua altura">
+  <p class="small">O peso ajuda a estimar as calorias.
+  A altura fica disponível para personalizações futuras.</p>
+</section>
+
+<section class="panel">
+  <h3>🎨 Personalizar tema</h3>
+  <select id="theme">
+    <option value="#00f5d4">Neon Turquesa</option>
+    <option value="#00aaff">Azul Elétrico</option>
+    <option value="#a855f7">Roxo Cósmico</option>
+    <option value="#ff375f">Vermelho Turbo</option>
+    <option value="#b6ff00">Verde Laser</option>
+    <option value="#ffae00">Laranja Solar</option>
+  </select>
+</section>
+
+<section class="panel">
+  <h3>🏁 Última pedalada</h3>
+  <div id="history" class="small">Nenhuma pedalada registrada.</div>
+</section>
+
+<script>
+const $ = id => document.getElementById(id);
+let watchId = null;
+let active = false;
+let distance = 0;
+let elapsed = 0;
+let startedAt = 0;
+let lastPoint = null;
+let movingSeconds = 0;
+let lastTick = 0;
+let calories = 0;
+let positions = [];
+let history = [];
+
+function formatTime(s) {
+  s = Math.floor(s);
+  const h = String(Math.floor(s/3600)).padStart(2,'0');
+  const m = String(Math.floor(s%3600/60)).padStart(2,'0');
+  const sec = String(s%60).padStart(2,'0');
+  return `${h}:${m}:${sec}`;
+}
+
+function distanceBetween(a,b) {
+  const rad = n => n*Math.PI/180;
+  const dLat = rad(b.latitude-a.latitude);
+  const dLon = rad(b.longitude-a.longitude);
+  const x = Math.sin(dLat/2)**2 +
+    Math.cos(rad(a.latitude))*Math.cos(rad(b.latitude))*
+    Math.sin(dLon/2)**2;
+  return 6371000*2*Math.atan2(Math.sqrt(x),Math.sqrt(1-x));
+}
+
+function render() {
+  $('km').textContent = (distance/1000).toFixed(2);
+  $('time').textContent = formatTime(elapsed);
+  $('speed').textContent = positions.length
+    ? positions[positions.length-1].toFixed(1) : '0.0';
+  $('avg').textContent = movingSeconds > 0
+    ? (distance/1000/(movingSeconds/3600)).toFixed(1) : '0.0';
+  $('cal').textContent = Math.round(calories);
+}
+
+function updateCalories(speed) {
+  const weight = Number($('weight').value);
+  if (!weight || weight < 20 || weight > 300) return;
+  // Estimativa aproximada baseada na intensidade do ciclismo.
+  const met = speed < 10 ? 4 : speed < 16 ? 6 : speed < 20 ? 8 : 10;
+  calories += met * 3.5 * weight / 200 / 60;
+}
+
+function onPosition(pos) {
+  if (!active) return;
+  const c = pos.coords;
+  if (c.accuracy > 50) {
+    $('status').textContent = 'GPS impreciso. Buscando sinal melhor...';
+    return;
+  }
+
+  if (lastPoint) {
+    const d = distanceBetween(lastPoint,c);
+    // Rejeita saltos improváveis causados por erros do GPS.
+    const dt = (pos.timestamp-lastPoint.timestamp)/1000;
+    if (d >= 2 && d < 100 && dt > 0 && d/dt < 15) {
+      distance += d;
+      const speed = c.speed != null && c.speed >= 0
+        ? c.speed*3.6 : d/dt*3.6;
+      positions.push(speed);
+      if (speed > 1) {
+        movingSeconds += dt;
+        updateCalories(speed);
+      }
+    }
+  }
+
+  lastPoint = {
+    latitude:c.latitude,
+    longitude:c.longitude,
+    timestamp:pos.timestamp
+  };
+  $('status').textContent = '● GPS ativo — pedalando';
+  render();
+}
+
+function onError(err) {
+  $('status').textContent =
+    'GPS indisponível. Confira a permissão e a localização.';
+  console.warn(err.message);
+}
+
+function startRide() {
+  if (!navigator.geolocation) {
+    $('status').textContent = 'Este navegador não oferece GPS.';
+    return;
+  }
+  if (!window.isSecureContext) {
+    $('status').textContent =
+      'Abra em HTTPS ou localhost para liberar o GPS.';
+    return;
+  }
+  if (active) return;
+
+  active = true;
+  lastPoint = null;
+  lastTick = Date.now();
+  startedAt = Date.now();
+  $('start').disabled = true;
+  $('pause').disabled = false;
+
+  watchId = navigator.geolocation.watchPosition(
+    onPosition, onError,
+    {enableHighAccuracy:true, maximumAge:1000, timeout:20000}
+  );
+
+  window.timerId = setInterval(() => {
+    if (!active) return;
+    const now = Date.now();
+    elapsed += (now-lastTick)/1000;
+    lastTick = now;
+    render();
+  },1000);
+}
+
+function stopRide() {
+  if (!active) return;
+  active = false;
+  if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+  watchId = null;
+  clearInterval(window.timerId);
+
+  if (distance > 0) {
+    history.unshift(
+      `${(distance/1000).toFixed(2)} km • `+
+      `${formatTime(elapsed)} • ${Math.round(calories)} kcal`
+    );
+    $('history').textContent = history.slice(0,10).join('\n');
+    $('history').style.whiteSpace = 'pre-line';
+  }
+  $('status').textContent = 'Pedalada encerrada';
+  $('start').disabled = false;
+  $('pause').disabled = true;
+  $('start').textContent = '▶ NOVA PEDALADA';
+}
+
+$('start').addEventListener('click', () => {
+  if (!active && elapsed > 0) {
+    distance = 0; elapsed = 0; movingSeconds = 0;
+    calories = 0; positions = []; lastPoint = null;
+    $('start').textContent = '▶ INICIAR PEDALADA';
+    render();
+  }
+  startRide();
+});
+$('pause').addEventListener('click', stopRide);
+$('theme').addEventListener('change', e => {
+  document.documentElement.style.setProperty('--neon',e.target.value);
+  document.querySelector('meta[name="theme-color"]')
+    .setAttribute('content',getComputedStyle(document.documentElement)
+      .getPropertyValue('--bg').trim());
+});
+render();
+</script>
+</body>
+</html>
